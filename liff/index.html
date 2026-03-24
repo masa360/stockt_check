@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>AnimePick-L</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- JANバーコード読取ライブラリ -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- LINE LIFF SDK -->
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+  <style>
+    * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+    body { overscroll-behavior: none; }
+
+    /* カメラ映像を全画面に広げる */
+    #qr-reader { position: absolute; inset: 0; overflow: hidden; }
+    #qr-reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
+    #qr-reader > img,
+    #qr-reader__header_message,
+    #qr-reader__status_span,
+    #qr-reader__dashboard { display: none !important; }
+    #qr-reader__scan_region { border: none !important; background: transparent !important; }
+
+    /* スキャン枠アニメーション */
+    @keyframes scanLine {
+      0%   { top: 6px; }
+      50%  { top: calc(100% - 9px); }
+      100% { top: 6px; }
+    }
+    .scan-line {
+      position: absolute; left: 12px; right: 12px; height: 3px;
+      background: linear-gradient(90deg, transparent, #22d3ee, transparent);
+      animation: scanLine 1.8s ease-in-out infinite;
+    }
+
+    /* モーダル表示アニメーション */
+    @keyframes slideUp {
+      from { transform: translateY(100%); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+    .modal-sheet { animation: slideUp 0.25s ease-out; }
+
+    /* 赤フラッシュ（エラー時） */
+    @keyframes flashRed {
+      0%, 100% { background-color: transparent; }
+      40%      { background-color: rgba(239,68,68,0.25); }
+    }
+    .flash-red { animation: flashRed 0.35s ease-out 2; }
+
+    /* 全画面を覆うモーダル背景 */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 60;
+      background: rgba(0,0,0,0.65);
+      display: flex; align-items: flex-end; justify-content: center;
+    }
+    .modal-overlay.hidden { display: none; }
+  </style>
+</head>
+
+<body class="bg-slate-900 text-white min-h-screen font-sans select-none">
+
+  <!-- ============================================================
+       画面 0: 初期化中
+  ============================================================ -->
+  <div id="screen-init" class="min-h-screen flex flex-col items-center justify-center gap-6 px-6">
+    <div class="text-5xl font-black tracking-tight">
+      <span class="text-cyan-400">Anime</span>Pick-L
+    </div>
+    <div class="flex flex-col items-center gap-3">
+      <div class="w-10 h-10 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+      <p class="text-slate-400 text-sm" id="init-message">初期化中...</p>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       画面 1: ピッキングリスト（メイン）
+  ============================================================ -->
+  <div id="screen-picking" class="hidden flex flex-col min-h-screen">
+
+    <!-- ヘッダー -->
+    <header class="bg-slate-800 border-b border-slate-700 px-4 py-3 sticky top-0 z-10
+                   flex items-center justify-between">
+      <div>
+        <div class="font-black text-xl leading-none">
+          <span class="text-cyan-400">Anime</span>Pick-L
+        </div>
+        <div class="text-xs text-slate-400 mt-0.5" id="header-user">---</div>
+      </div>
+      <div class="text-right">
+        <div class="text-xs text-slate-400" id="header-date">---</div>
+        <div class="text-base font-bold mt-0.5">
+          <span class="text-cyan-400" id="progress-done">0</span>
+          <span class="text-slate-400">/<span id="progress-total">0</span> 完了</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- コンテンツ -->
+    <main class="flex-1 overflow-y-auto pb-28 px-4 pt-4">
+
+      <!-- 全体進捗バー -->
+      <div class="bg-slate-800 rounded-2xl p-3.5 mb-4">
+        <div class="flex justify-between text-xs text-slate-400 mb-2">
+          <span>本日の進捗</span>
+          <span id="progress-pct">0%</span>
+        </div>
+        <div class="w-full bg-slate-700 rounded-full h-2">
+          <div id="progress-bar"
+               class="bg-cyan-400 h-2 rounded-full transition-all duration-700"
+               style="width:0%">
+          </div>
+        </div>
+      </div>
+
+      <!-- ローディング中 -->
+      <div id="picking-loading" class="flex flex-col items-center justify-center py-20 gap-3">
+        <div class="w-8 h-8 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+        <p class="text-slate-400 text-sm">リストを読み込み中...</p>
+      </div>
+
+      <!-- ピッキングリスト -->
+      <div id="picking-list" class="flex flex-col gap-3 hidden"></div>
+
+      <!-- 全件完了 -->
+      <div id="picking-empty" class="hidden flex flex-col items-center justify-center py-20 gap-4 text-center">
+        <div class="text-6xl">🎉</div>
+        <div class="text-xl font-black text-emerald-400">すべて完了！</div>
+        <div class="text-slate-400 text-sm">本日の出荷リストは全件ピッキング済みです</div>
+      </div>
+
+    </main>
+
+    <!-- 固定フッター: スキャン + 更新 -->
+    <div class="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-sm
+                border-t border-slate-700 p-4 flex gap-3 z-10">
+      <!-- 更新ボタン -->
+      <button onclick="loadPickingList()"
+              class="flex-none w-14 h-14 bg-slate-700 rounded-2xl flex items-center justify-center
+                     text-slate-300 active:bg-slate-600 active:scale-95 transition-all">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+      </button>
+      <!-- スキャンボタン -->
+      <button onclick="startScan()"
+              class="flex-1 bg-cyan-500 text-white font-black text-xl rounded-2xl h-14
+                     flex items-center justify-center gap-2
+                     active:bg-cyan-400 active:scale-95 transition-all
+                     shadow-lg shadow-cyan-500/30">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8H3a2 2 0 00-2 2v6a2 2 0 002 2h2m6-12v-.01M12 3v-.01"/>
+        </svg>
+        スキャン
+      </button>
+    </div>
+
+  </div><!-- /screen-picking -->
+
+  <!-- ============================================================
+       画面 2: カメラスキャン
+  ============================================================ -->
+  <div id="screen-scanning" class="hidden fixed inset-0 bg-black z-50 flex flex-col">
+
+    <!-- カメラ映像 -->
+    <div id="qr-reader" class="absolute inset-0"></div>
+
+    <!-- 上部ヘッダー -->
+    <div class="absolute top-0 left-0 right-0 z-10
+                flex items-center justify-between px-4 py-4
+                bg-gradient-to-b from-black/80 to-transparent">
+      <span class="font-bold text-white text-lg">JANスキャン</span>
+      <button onclick="stopScan()"
+              class="w-11 h-11 bg-white/20 rounded-full flex items-center justify-center
+                     active:bg-white/40 transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- スキャン枠（中央に配置） -->
+    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <div class="relative" style="width:280px;height:170px;">
+        <!-- 暗幕 -->
+        <div class="absolute"
+             style="inset:-9999px;box-shadow:0 0 0 9999px rgba(0,0,0,0.5);border-radius:12px;"></div>
+        <!-- 枠 -->
+        <div class="absolute inset-0 rounded-xl border-2 border-cyan-400">
+          <!-- 四隅の強調 -->
+          <span class="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-cyan-400 rounded-tl-lg"></span>
+          <span class="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-cyan-400 rounded-tr-lg"></span>
+          <span class="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-cyan-400 rounded-bl-lg"></span>
+          <span class="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-cyan-400 rounded-br-lg"></span>
+          <!-- スキャンライン -->
+          <div class="scan-line"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 下部ガイド -->
+    <div class="absolute bottom-0 left-0 right-0
+                bg-gradient-to-t from-black/80 to-transparent
+                px-4 py-10 text-center">
+      <p class="text-white/80 text-sm">バーコードを枠内に合わせてください</p>
+    </div>
+
+  </div><!-- /screen-scanning -->
+
+  <!-- ============================================================
+       モーダル: ピッキング成功
+  ============================================================ -->
+  <div id="modal-success" class="modal-overlay hidden">
+    <div class="modal-sheet bg-slate-800 rounded-t-3xl w-full max-w-lg p-6
+                border-t border-slate-700">
+      <!-- タイトル -->
+      <div class="flex items-center gap-3 mb-5">
+        <div class="w-12 h-12 bg-emerald-500/20 rounded-2xl flex items-center justify-center flex-none">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+          </svg>
+        </div>
+        <div>
+          <div class="font-black text-lg text-emerald-400">ピッキング完了</div>
+          <div class="text-slate-400 text-xs" id="success-progress">---</div>
+        </div>
+      </div>
+      <!-- 商品画像 -->
+      <div class="relative w-full bg-slate-700 rounded-2xl overflow-hidden mb-4"
+           style="height:160px;">
+        <img id="success-image" src="" alt="商品画像"
+             class="absolute inset-0 w-full h-full object-contain hidden" />
+        <div id="success-no-image"
+             class="absolute inset-0 flex items-center justify-center
+                    text-slate-500 text-sm">画像未登録</div>
+      </div>
+      <!-- 商品名 / JAN -->
+      <div class="font-bold text-lg leading-tight mb-1" id="success-product-name">---</div>
+      <div class="text-slate-400 text-xs font-mono mb-6" id="success-jan">---</div>
+      <!-- ボタン -->
+      <button onclick="onSuccessContinue()"
+              class="w-full bg-cyan-500 text-white font-black text-base rounded-2xl py-4
+                     active:bg-cyan-400 active:scale-95 transition-all">
+        次をスキャン
+      </button>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       モーダル: エラー（再試行あり）
+  ============================================================ -->
+  <div id="modal-error" class="modal-overlay hidden">
+    <div id="modal-error-sheet"
+         class="modal-sheet bg-slate-800 rounded-t-3xl w-full max-w-lg p-6
+                border-t border-slate-700">
+      <!-- タイトル -->
+      <div class="flex items-center gap-3 mb-5">
+        <div class="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center flex-none">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </div>
+        <div>
+          <div class="font-black text-lg text-red-400">エラー</div>
+          <div class="text-slate-400 text-xs" id="error-retry-label">---</div>
+        </div>
+      </div>
+      <!-- エラー本文 -->
+      <div class="bg-slate-700/50 rounded-xl p-4 mb-6">
+        <p class="text-sm text-slate-200 leading-relaxed" id="error-message">---</p>
+      </div>
+      <!-- ボタン -->
+      <div class="flex gap-3">
+        <button onclick="onErrorCancel()"
+                class="flex-1 bg-slate-700 text-slate-200 font-bold rounded-2xl py-3.5
+                       active:bg-slate-600 active:scale-95 transition-all">
+          キャンセル
+        </button>
+        <button id="btn-retry" onclick="onRetry()"
+                class="flex-1 bg-red-500 text-white font-black rounded-2xl py-3.5
+                       active:bg-red-400 active:scale-95 transition-all">
+          再試行
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       モーダル: 同一JAN連続スキャン（警告・承認）
+  ============================================================ -->
+  <div id="modal-duplicate" class="modal-overlay hidden">
+    <div class="modal-sheet bg-slate-800 rounded-t-3xl w-full max-w-lg p-6
+                border-t border-amber-800/50">
+      <!-- タイトル -->
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-12 h-12 bg-amber-500/20 rounded-2xl flex items-center justify-center
+                    text-2xl flex-none">
+          ⚠️
+        </div>
+        <div>
+          <div class="font-black text-lg text-amber-400">同一JAN連続スキャン</div>
+          <div class="text-slate-400 text-xs">10秒以内に同じコードを読み取りました</div>
+        </div>
+      </div>
+      <!-- 対象商品 -->
+      <div class="bg-slate-700/50 rounded-xl p-4 mb-4">
+        <p class="text-slate-400 text-xs mb-1">スキャンした商品</p>
+        <p class="font-bold text-base leading-tight" id="dup-product-name">---</p>
+        <p class="text-slate-400 text-xs font-mono mt-1" id="dup-jan">---</p>
+      </div>
+      <p class="text-sm text-slate-300 leading-relaxed mb-6">
+        意図的なスキャンの場合は「承認して実行」を押してください。<br>
+        この操作はログに記録されます。
+      </p>
+      <!-- ボタン -->
+      <div class="flex gap-3">
+        <button onclick="onDuplicateCancel()"
+                class="flex-1 bg-slate-700 text-slate-200 font-bold rounded-2xl py-3.5
+                       active:bg-slate-600 active:scale-95 transition-all">
+          キャンセル
+        </button>
+        <button onclick="onDuplicateApprove()"
+                class="flex-1 bg-amber-500 text-white font-black rounded-2xl py-3.5
+                       active:bg-amber-400 active:scale-95 transition-all">
+          承認して実行
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       モーダル: 再試行上限（3回失敗）
+  ============================================================ -->
+  <div id="modal-max-retry" class="modal-overlay hidden">
+    <div class="modal-sheet bg-slate-800 rounded-t-3xl w-full max-w-lg p-6
+                border-t border-red-800/50">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center
+                    text-2xl flex-none">
+          📡
+        </div>
+        <div>
+          <div class="font-black text-lg text-red-400">通信エラー（上限到達）</div>
+          <div class="text-slate-400 text-xs">3回試行しましたが接続できません</div>
+        </div>
+      </div>
+      <div class="bg-slate-700/50 rounded-xl p-4 mb-6 text-sm text-slate-300 space-y-2.5
+                  leading-relaxed">
+        <p>📶 電波の良い場所に移動して、もう一度スキャンしてください。</p>
+        <p>📝 または手動で作業記録を行ってください。</p>
+        <p>📞 解決しない場合は管理者にご連絡ください。</p>
+      </div>
+      <button onclick="onMaxRetryClose()"
+              class="w-full bg-slate-600 text-white font-bold rounded-2xl py-4
+                     active:bg-slate-500 active:scale-95 transition-all">
+        閉じる
+      </button>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       Toast 通知
+  ============================================================ -->
+  <div id="toast"
+       class="hidden fixed top-4 left-4 right-4 z-[100]
+              rounded-2xl px-4 py-3 text-sm font-semibold shadow-xl
+              max-w-sm mx-auto transition-all duration-300">
+    <span id="toast-message"></span>
+  </div>
+
+  <!-- ============================================================
+       JavaScript
+  ============================================================ -->
+  <script>
+    // ================================================================
+    // 設定（デプロイ後にここを変更してください）
+    // ================================================================
+    const CONFIG = {
+      LIFF_ID:             'YOUR_LIFF_ID',          // LINE Developersで取得したLIFF ID
+      GAS_URL:             'YOUR_GAS_WEBAPP_URL',   // GASデプロイ後のWebアプリURL
+      DUPLICATE_WINDOW_MS: 10_000,                  // 同一JAN連続判定ウィンドウ（10秒）
+      MAX_RETRY:           3,                        // 再試行上限回数
+    };
+
+    // ================================================================
+    // アプリ状態管理
+    // ================================================================
+    const state = {
+      user:           { userId: null, displayName: null },
+      pickingList:    [],           // GASから取得した指示書データ
+      lastScan:       { jan: null, timestamp: 0 },
+      retryCount:     0,            // 現在の再試行回数
+      retryParams:    null,         // 再試行用に保持するAPIパラメータ
+      pendingJan:     null,         // 承認待ちJAN（同一JAN連続時）
+      pendingOrderId: null,         // 承認待ち注文ID
+      scanner:        null,         // Html5Qrcode インスタンス
+      isRunning:      false,        // スキャン中フラグ
+      isProcessing:   false,        // 二重呼び出し防止フラグ
+    };
+
+    // ================================================================
+    // 画面・モーダル制御
+    // ================================================================
+    function showScreen(id) {
+      ['screen-init', 'screen-picking', 'screen-scanning'].forEach(sid => {
+        document.getElementById(sid).classList.add('hidden');
+      });
+      document.getElementById(id).classList.remove('hidden');
+    }
+
+    function showModal(id) {
+      document.getElementById(id).classList.remove('hidden');
+    }
+
+    function hideModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    let _toastTimer = null;
+    function showToast(message, type = 'info') {
+      const el     = document.getElementById('toast');
+      const colors = {
+        success: 'bg-emerald-500 text-white',
+        error:   'bg-red-500 text-white',
+        warning: 'bg-amber-500 text-white',
+        info:    'bg-slate-700 text-white',
+      };
+      el.className = `fixed top-4 left-4 right-4 z-[100] rounded-2xl px-4 py-3 text-sm
+                      font-semibold shadow-xl max-w-sm mx-auto ${colors[type] || colors.info}`;
+      document.getElementById('toast-message').textContent = message;
+      clearTimeout(_toastTimer);
+      _toastTimer = setTimeout(() => el.classList.add('hidden'), 2800);
+    }
+
+    // ================================================================
+    // LIFF 初期化
+    // ================================================================
+    async function initApp() {
+      if (CONFIG.LIFF_ID === 'YOUR_LIFF_ID') {
+        // 開発用モック（LIFF IDが未設定の場合）
+        document.getElementById('init-message').textContent = '⚠ LIFF IDが未設定です';
+        state.user = { userId: 'mock_user_001', displayName: 'テストユーザー' };
+        _setupHeader();
+        await loadPickingList();
+        showScreen('screen-picking');
+        return;
+      }
+
+      try {
+        document.getElementById('init-message').textContent = 'LINEに接続中...';
+        await liff.init({ liffId: CONFIG.LIFF_ID });
+
+        if (!liff.isLoggedIn()) {
+          liff.login();
+          return;
+        }
+
+        const profile = await liff.getProfile();
+        state.user.userId      = profile.userId;
+        state.user.displayName = profile.displayName;
+
+        _setupHeader();
+
+        document.getElementById('init-message').textContent = '出荷リストを読み込み中...';
+        await loadPickingList();
+        showScreen('screen-picking');
+
+      } catch (err) {
+        console.error('LIFF init error:', err);
+        document.getElementById('init-message').textContent =
+          '初期化に失敗しました。ページを再読み込みしてください。';
+      }
+    }
+
+    function _setupHeader() {
+      document.getElementById('header-user').textContent = state.user.displayName || '---';
+      document.getElementById('header-date').textContent =
+        new Date().toLocaleDateString('ja-JP', {
+          month: 'long', day: 'numeric', weekday: 'short'
+        });
+    }
+
+    // ================================================================
+    // API呼び出し（リトライロジック付き）
+    // ================================================================
+    async function callApi(params) {
+      if (CONFIG.GAS_URL === 'YOUR_GAS_WEBAPP_URL') {
+        // 開発用モック（GAS URLが未設定の場合）
+        return _mockApi(params);
+      }
+
+      const url = new URL(CONFIG.GAS_URL);
+      Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+
+      const res  = await fetch(url.toString(), { method: 'GET', mode: 'cors' });
+      if (!res.ok) throw new Error(`サーバーエラー（HTTP ${res.status}）`);
+      return await res.json();
+    }
+
+    // ================================================================
+    // 開発用モック（GAS未設定時はダミーデータで動く）
+    // ================================================================
+    const _mockOrders = [
+      { 注文ID:'ORD001', JANコード:'4901234567890', 商品名:'リゼロ　レムフィギュア Ver.A', 画像URL:'', 棚番:'A-03', 必要数:3, 完了数:0, ステータス:'未' },
+      { 注文ID:'ORD001', JANコード:'4901234567891', 商品名:'鬼滅の刃　炭治郎アクスタ', 画像URL:'', 棚番:'B-07', 必要数:2, 完了数:1, ステータス:'作業中' },
+      { 注文ID:'ORD002', JANコード:'4901234567892', 商品名:'呪術廻戦　五条悟缶バッジ', 画像URL:'', 棚番:'C-01', 必要数:5, 完了数:5, ステータス:'済' },
+    ];
+
+    function _mockApi(params) {
+      return new Promise(resolve => {
+        setTimeout(() => {
+          if (params.action === 'getPickingList') {
+            resolve({ success: true, data: JSON.parse(JSON.stringify(_mockOrders)) });
+          } else if (params.action === 'pickItem') {
+            const item = _mockOrders.find(o =>
+              String(o.JANコード) === String(params.jan)
+            );
+            if (!item) { resolve({ success: false, error: 'not_found', message: '指示書に対象商品が見つかりません' }); return; }
+            if (item.ステータス === '済') { resolve({ success: false, error: 'already_completed', message: '既にピッキング済みです' }); return; }
+            item.完了数++;
+            if (item.完了数 >= item.必要数) item.ステータス = '済';
+            else item.ステータス = '作業中';
+            resolve({ success: true, data: { completed: item.完了数, required: item.必要数, status: item.ステータス } });
+          } else if (params.action === 'addLog') {
+            console.log('[Mock Log]', params);
+            resolve({ success: true });
+          } else {
+            resolve({ success: false, error: '不明なアクション' });
+          }
+        }, 400); // 通信遅延をシミュレート
+      });
+    }
+
+    // ================================================================
+    // ピッキングリスト取得・表示
+    // ================================================================
+    async function loadPickingList() {
+      const listEl    = document.getElementById('picking-list');
+      const loadingEl = document.getElementById('picking-loading');
+      const emptyEl   = document.getElementById('picking-empty');
+
+      listEl.classList.add('hidden');
+      emptyEl.classList.add('hidden');
+      loadingEl.classList.remove('hidden');
+
+      try {
+        const res = await callApi({ action: 'getPickingList' });
+        loadingEl.classList.add('hidden');
+
+        if (!res.success) {
+          showToast('リストの読み込みに失敗しました', 'error');
+          return;
+        }
+
+        state.pickingList = res.data || [];
+        renderPickingList();
+
+      } catch (err) {
+        loadingEl.classList.add('hidden');
+        console.error(err);
+        showToast('通信エラー：リストを取得できませんでした', 'error');
+      }
+    }
+
+    function renderPickingList() {
+      const listEl  = document.getElementById('picking-list');
+      const emptyEl = document.getElementById('picking-empty');
+      const list    = state.pickingList;
+
+      // 進捗カウンター更新
+      const total = list.length;
+      const done  = list.filter(i => i['ステータス'] === '済').length;
+      const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      document.getElementById('progress-done').textContent  = done;
+      document.getElementById('progress-total').textContent = total;
+      document.getElementById('progress-pct').textContent   = pct + '%';
+      document.getElementById('progress-bar').style.width   = pct + '%';
+
+      listEl.innerHTML = '';
+
+      if (total === 0) {
+        listEl.classList.add('hidden');
+        emptyEl.classList.remove('hidden');
+        return;
+      }
+
+      if (done === total) {
+        listEl.classList.add('hidden');
+        emptyEl.classList.remove('hidden');
+        return;
+      }
+
+      emptyEl.classList.add('hidden');
+      listEl.classList.remove('hidden');
+
+      list.forEach(item => {
+        const isDone    = item['ステータス'] === '済';
+        const isWorking = item['ステータス'] === '作業中';
+        const required  = Number(item['必要数']) || 0;
+        const completed = Number(item['完了数']) || 0;
+        const pctItem   = required > 0 ? Math.min(100, Math.round((completed / required) * 100)) : 0;
+
+        const badge = isDone
+          ? `<span class="px-2 py-0.5 rounded-full text-xs font-bold
+                          bg-emerald-500/20 text-emerald-400 whitespace-nowrap">済</span>`
+          : isWorking
+          ? `<span class="px-2 py-0.5 rounded-full text-xs font-bold
+                          bg-amber-500/20 text-amber-400 whitespace-nowrap">作業中</span>`
+          : `<span class="px-2 py-0.5 rounded-full text-xs font-bold
+                          bg-slate-600 text-slate-300 whitespace-nowrap">未</span>`;
+
+        const card = document.createElement('div');
+        card.className = `bg-slate-800 rounded-2xl p-4 border transition-all
+          ${isDone ? 'border-slate-700 opacity-50' : 'border-slate-700'}`;
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-3 mb-3">
+            <div class="flex-1 min-w-0">
+              <div class="font-bold text-base leading-tight truncate
+                          ${isDone ? 'line-through text-slate-400' : ''}">
+                ${escHtml(item['商品名'] || '商品名未設定')}
+              </div>
+              <div class="text-slate-500 text-xs font-mono mt-0.5">
+                JAN: ${escHtml(String(item['JANコード'] || ''))}
+              </div>
+              ${item['棚番'] ? `<div class="text-cyan-400 text-xs mt-0.5">📍 ${escHtml(item['棚番'])}</div>` : ''}
+            </div>
+            <div class="flex flex-col items-end gap-1.5 flex-none">
+              ${badge}
+              <span class="text-sm font-bold">
+                ${completed}<span class="text-slate-500 font-normal">/${required}</span>
+              </span>
+            </div>
+          </div>
+          ${!isDone ? `
+          <div class="w-full bg-slate-700 rounded-full h-1.5">
+            <div class="bg-cyan-400 h-1.5 rounded-full transition-all"
+                 style="width:${pctItem}%"></div>
+          </div>` : ''}
+        `;
+        listEl.appendChild(card);
+      });
+    }
+
+    // ================================================================
+    // スキャン処理
+    // ================================================================
+    async function startScan() {
+      showScreen('screen-scanning');
+
+      if (!state.scanner) {
+        state.scanner = new Html5Qrcode('qr-reader');
+      }
+
+      try {
+        await state.scanner.start(
+          { facingMode: 'environment' },
+          { fps: 15, qrbox: { width: 260, height: 160 } },
+          _onScanRaw,
+          () => {} // 読取失敗は毎フレーム呼ばれるためサイレント
+        );
+        state.isRunning = true;
+
+      } catch (err) {
+        console.error('Camera error:', err);
+        showScreen('screen-picking');
+        showToast('カメラを起動できませんでした', 'error');
+      }
+    }
+
+    async function stopScan() {
+      if (state.scanner && state.isRunning) {
+        try { await state.scanner.stop(); } catch (_) {}
+        state.isRunning = false;
+      }
+      state.isProcessing = false;
+      showScreen('screen-picking');
+    }
+
+    // html5-qrcode のコールバック（連打防止ガードあり）
+    function _onRawScan(jan) {
+      if (state.isProcessing) return;
+      state.isProcessing = true;
+      onScanSuccess(jan);
+    }
+
+    // エイリアス（html5-qrcode v2系はコールバック変数を直参照するため関数に委譲）
+    function _onScanRaw(jan) { _onRawScan(jan); }
+
+    // ================================================================
+    // スキャン成功時の処理ロジック
+    // ================================================================
+    async function onScanSuccess(jan) {
+      // EAN-13 形式チェック
+      if (!/^\d{13}$/.test(jan)) {
+        state.isProcessing = false;
+        showToast('13桁のJANコードのみ対応しています', 'warning');
+        return;
+      }
+
+      // スキャナー停止
+      await stopScan();
+
+      // ─── 同一JAN連続判定（10秒以内・同一ユーザー・同一JAN）───
+      if (_isDuplicateScan(jan)) {
+        state.pendingJan     = jan;
+        state.pendingOrderId = _findOrderIdByJan(jan);
+
+        const product = _findItemByJan(jan);
+        document.getElementById('dup-product-name').textContent =
+          product?.['商品名'] || '（商品名不明）';
+        document.getElementById('dup-jan').textContent = jan;
+
+        showModal('modal-duplicate');
+        return;
+      }
+
+      // 通常フロー
+      await _processPick(jan, _findOrderIdByJan(jan), false);
+    }
+
+    function _isDuplicateScan(jan) {
+      return (
+        state.lastScan.jan === jan &&
+        (Date.now() - state.lastScan.timestamp) <= CONFIG.DUPLICATE_WINDOW_MS
+      );
+    }
+
+    function _findItemByJan(jan) {
+      return state.pickingList.find(
+        i => String(i['JANコード']) === String(jan)
+      ) || null;
+    }
+
+    function _findOrderIdByJan(jan) {
+      const item = state.pickingList.find(
+        i => String(i['JANコード']) === String(jan) && i['ステータス'] !== '済'
+      );
+      return item?.['注文ID'] || '';
+    }
+
+    // ================================================================
+    // ピッキング API 呼び出し（リトライ込み）
+    // ================================================================
+    async function _processPick(jan, orderId, isApproved) {
+      state.retryCount  = 0;
+      state.retryParams = {
+        action:   'pickItem',
+        jan,
+        orderId:  orderId || '',
+        userId:   state.user.userId,
+        userName: state.user.displayName,
+      };
+      await _executePickWithRetry(isApproved);
+    }
+
+    async function _executePickWithRetry(isApproved = false) {
+      const params = state.retryParams;
+
+      try {
+        const res = await callApi(params);
+
+        if (res.success) {
+          // ──── 成功 ────
+          const { completed, required, status } = res.data;
+
+          // ローカルデータを即時更新
+          _updateLocalItem(params.jan, params.orderId, completed, status);
+          state.lastScan = { jan: params.jan, timestamp: Date.now() };
+
+          // 成功モーダル表示
+          const item = _findItemByJan(params.jan);
+          _showSuccessModal(item, params.jan, completed, required);
+
+          // 監査ログ記録（失敗しても現場を止めない）
+          _sendLog(
+            isApproved ? 'pick_approved' : 'pick_success',
+            params.jan,
+            params.orderId,
+            'success',
+            isApproved ? 'duplicate_jan_approved' : ''
+          );
+          renderPickingList();
+
+        } else if (res.error === 'already_completed') {
+          // ──── 既に完了済み ────
+          state.lastScan = { jan: params.jan, timestamp: Date.now() };
+          showToast('既にピッキング済みの商品です', 'warning');
+          _sendLog('pick_rejected', params.jan, params.orderId, 'fail', 'already_completed');
+
+        } else {
+          throw new Error(res.message || res.error || '不明なエラー');
+        }
+
+      } catch (err) {
+        // ──── エラー → リトライ判定 ────
+        state.retryCount++;
+
+        _sendLog(
+          'pick_error',
+          params.jan,
+          params.orderId,
+          'fail',
+          `retry_${state.retryCount}: ${err.message}`
+        );
+
+        if (state.retryCount > CONFIG.MAX_RETRY) {
+          hideModal('modal-error');
+          showModal('modal-max-retry');
+        } else {
+          document.getElementById('error-message').textContent =
+            err.message || '通信エラーが発生しました。もう一度お試しください。';
+          document.getElementById('error-retry-label').textContent =
+            `再試行 ${state.retryCount} / ${CONFIG.MAX_RETRY} 回目`;
+          showModal('modal-error');
+        }
+      }
+    }
+
+    function _updateLocalItem(jan, orderId, completed, status) {
+      const item = state.pickingList.find(
+        i => String(i['JANコード']) === String(jan) &&
+             (i['注文ID'] === orderId || !orderId)
+      );
+      if (item) {
+        item['完了数']   = completed;
+        item['ステータス'] = status;
+      }
+    }
+
+    function _showSuccessModal(item, jan, completed, required) {
+      const imgEl   = document.getElementById('success-image');
+      const noImgEl = document.getElementById('success-no-image');
+      const url     = item?.['画像URL'];
+
+      if (url) {
+        imgEl.src = url;
+        imgEl.classList.remove('hidden');
+        noImgEl.classList.add('hidden');
+      } else {
+        imgEl.classList.add('hidden');
+        noImgEl.classList.remove('hidden');
+      }
+
+      document.getElementById('success-product-name').textContent =
+        item?.['商品名'] || '商品名不明';
+      document.getElementById('success-jan').textContent = jan;
+      document.getElementById('success-progress').textContent =
+        `${completed} / ${required} 個 完了`;
+
+      showModal('modal-success');
+    }
+
+    // ================================================================
+    // 監査ログ送信（サイレント失敗 — 現場を止めない）
+    // ================================================================
+    function _sendLog(actionType, jan, orderId, result, note) {
+      callApi({
+        action:      'addLog',
+        action_type: actionType,
+        jan:         jan     || '',
+        orderId:     orderId || '',
+        userId:      state.user.userId,
+        userName:    state.user.displayName,
+        result,
+        note: note || '',
+      }).catch(err => console.warn('[Log failed]', actionType, err));
+    }
+
+    // ================================================================
+    // モーダルイベントハンドラ
+    // ================================================================
+
+    // 成功モーダル → 次をスキャン
+    function onSuccessContinue() {
+      hideModal('modal-success');
+      startScan();
+    }
+
+    // エラーモーダル → キャンセル
+    function onErrorCancel() {
+      hideModal('modal-error');
+      state.retryCount  = 0;
+      state.retryParams = null;
+    }
+
+    // エラーモーダル → 再試行
+    async function onRetry() {
+      hideModal('modal-error');
+      await _executePickWithRetry();
+    }
+
+    // 同一JAN → 承認して実行
+    async function onDuplicateApprove() {
+      hideModal('modal-duplicate');
+      const jan     = state.pendingJan;
+      const orderId = state.pendingOrderId;
+      state.pendingJan     = null;
+      state.pendingOrderId = null;
+
+      // 承認操作をログ記録（要件：duplicate_jan_approved）
+      _sendLog('duplicate_jan_approved', jan, orderId, 'approved', '');
+      await _processPick(jan, orderId, true);
+    }
+
+    // 同一JAN → キャンセル
+    async function onDuplicateCancel() {
+      hideModal('modal-duplicate');
+
+      // キャンセル操作をログ記録（要件：duplicate_jan_canceled）
+      _sendLog('duplicate_jan_canceled', state.pendingJan, state.pendingOrderId, 'canceled', '');
+      state.pendingJan     = null;
+      state.pendingOrderId = null;
+      showToast('スキャンをキャンセルしました', 'info');
+    }
+
+    // 上限到達モーダル → 閉じる
+    function onMaxRetryClose() {
+      hideModal('modal-max-retry');
+      state.retryCount  = 0;
+      state.retryParams = null;
+    }
+
+    // ================================================================
+    // ユーティリティ
+    // ================================================================
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ================================================================
+    // 起動
+    // ================================================================
+    initApp();
+  </script>
+
+</body>
+</html>
