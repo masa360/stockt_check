@@ -295,8 +295,9 @@
 
     <!--
       スキャン枠: JS側の qrbox と同じ計算式で描画することでズレをなくす。
-      幅 = 画面幅の85%（max 340px）/ 高さ = 110px 固定（横バーコード縦持ち最適）
-      id="scan-guide-box" のサイズはスキャナー起動時に JS で設定する。
+      幅 = 表示映像幅の90%（max 360px）
+      高さ = 表示映像高の30%（max 160px）
+      id="scan-guide-box" のサイズはスキャナー起動後に JS で設定する。
     -->
     <div id="scan-guide-layer" class="absolute inset-0 pointer-events-none z-20">
       <div id="scan-guide-box" class="relative"
@@ -827,8 +828,8 @@
       const r = vid.getBoundingClientRect();
       if (r.width < 10 || r.height < 10) return;
 
-      const w = Math.min(Math.floor(r.width * 0.85), 340);
-      const h = 110;
+      const w = Math.min(Math.floor(r.width * 0.90), 360);
+      const h = Math.min(Math.floor(r.height * 0.30), 160);
       const left = r.left + (r.width - w) / 2;
       const top  = r.top  + (r.height - h) / 2;
 
