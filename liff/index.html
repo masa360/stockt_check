@@ -866,34 +866,46 @@
     async function startScan() {
       showScreen('screen-scanning');
 
-      if (!state.scanner) {
-        state.scanner = new Html5Qrcode('qr-reader');
-      }
+      // stop後は内部状態が壊れるため、毎回新インスタンスを生成する
+      // （html5-qrcode は stop後の再start非推奨）
+      const el = document.getElementById('qr-reader');
+      el.innerHTML = '';
+      state.scanner = new Html5Qrcode('qr-reader');
 
       try {
-        // qrbox はライブラリから渡される viewfinder 幅（= video の表示幅）基準。
-        // 視覚ガイドは syncScanGuideToVideo で video の getBoundingClientRect に合わせる。
-        const qrboxFn = (vfW /*, vfH */) => {
-          const w = Math.min(Math.floor(vfW * 0.85), 340);
-          const h = 110;
+        // qrbox: 幅は広く（90%）、高さは横バーコード用に130px
+        // ただし読取精度のため狭めすぎない（高さが狭すぎると認識失敗する）
+        const qrboxFn = (vfW, vfH) => {
+          const w = Math.min(Math.floor(vfW * 0.90), 360);
+          const h = Math.min(Math.floor(vfH * 0.30), 160);
           return { width: w, height: h };
         };
 
         await state.scanner.start(
           { facingMode: 'environment' },
-          { fps: 15, qrbox: qrboxFn },
+          {
+            fps:                  30,   // 高めにして読取チャンスを増やす
+            qrbox:                qrboxFn,
+            disableFlip:          false, // 反転バーコードも読む
+            videoConstraints: {
+              facingMode: 'environment',
+              width:  { ideal: 1920 },   // 高解像度カメラを要求
+              height: { ideal: 1080 },
+            },
+          },
           _onScanRaw,
           () => {} // 読取失敗は毎フレーム呼ばれるためサイレント
         );
         state.isRunning = true;
 
-        // カメラ映像の実表示位置にガイドを合わせる（iOSのレターボックス対策）
+        // カメラ映像の実表示位置にガイドを合わせる
         const scheduleSync = () => {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => { syncScanGuideToVideo(); });
           });
         };
         scheduleSync();
+        setTimeout(scheduleSync, 800); // 映像安定後にも再同期
 
         const vid = document.querySelector('#qr-reader video');
         if (vid && typeof ResizeObserver !== 'undefined') {
@@ -918,6 +930,8 @@
         try { await state.scanner.stop(); } catch (_) {}
         state.isRunning = false;
       }
+      // インスタンスを破棄（次回 start 時に再生成するため）
+      state.scanner = null;
       state.isProcessing = false;
       showScreen('screen-picking');
     }
@@ -936,10 +950,10 @@
     // スキャン成功時の処理ロジック
     // ================================================================
     async function onScanSuccess(jan) {
-      // EAN-13 形式チェック
-      if (!/^\d{13}$/.test(jan)) {
+      // バーコード形式チェック（EAN-8/EAN-13/UPC-A など 8〜14桁の数字）
+      if (!/^\d{8,14}$/.test(jan)) {
         state.isProcessing = false;
-        showToast('13桁のJANコードのみ対応しています', 'warning');
+        // QRコードや非数字は静かに無視してスキャン継続
         return;
       }
 
