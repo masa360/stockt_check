@@ -24,6 +24,8 @@
     #qr-reader__header_message,
     #qr-reader__status_span,
     #qr-reader__dashboard { display: none !important; }
+    /* html5-qrcode が描く暗幕＋白い角括弧（#qr-shaded-region）。自作ガイドと二重になるため非表示 */
+    #qr-shaded-region { display: none !important; }
     #qr-reader__scan_region { border: none !important; background: transparent !important; }
 
     /* スキャン枠アニメーション */
@@ -296,9 +298,9 @@
       幅 = 画面幅の85%（max 340px）/ 高さ = 110px 固定（横バーコード縦持ち最適）
       id="scan-guide-box" のサイズはスキャナー起動時に JS で設定する。
     -->
-    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+    <div id="scan-guide-layer" class="absolute inset-0 pointer-events-none z-20">
       <div id="scan-guide-box" class="relative"
-           style="width:85vw; max-width:340px; height:110px;">
+           style="width:0;height:0;opacity:0;">
         <!-- 暗幕（枠の外側を暗くする） -->
         <div class="absolute"
              style="inset:-9999px;
@@ -531,6 +533,8 @@
       scanner:        null,
       isRunning:      false,
       isProcessing:   false,
+      scanGuideRO:    null,
+      orientationHandler: null,
     };
 
     // ================================================================
@@ -814,6 +818,49 @@
     }
 
     // ================================================================
+    // スキャンガイド枠を video の表示矩形に同期（ライブラリのqrboxと一致させる）
+    // ================================================================
+    function syncScanGuideToVideo() {
+      const vid = document.querySelector('#qr-reader video');
+      const box = document.getElementById('scan-guide-box');
+      if (!vid || !box) return;
+      const r = vid.getBoundingClientRect();
+      if (r.width < 10 || r.height < 10) return;
+
+      const w = Math.min(Math.floor(r.width * 0.85), 340);
+      const h = 110;
+      const left = r.left + (r.width - w) / 2;
+      const top  = r.top  + (r.height - h) / 2;
+
+      box.style.position = 'fixed';
+      box.style.left     = left + 'px';
+      box.style.top      = top + 'px';
+      box.style.width    = w + 'px';
+      box.style.height   = h + 'px';
+      box.style.margin   = '0';
+      box.style.transform = 'none';
+      box.style.opacity  = '1';
+    }
+
+    function teardownScanGuideSync() {
+      if (state.scanGuideRO) {
+        try { state.scanGuideRO.disconnect(); } catch (_) {}
+        state.scanGuideRO = null;
+      }
+      if (state.orientationHandler) {
+        window.removeEventListener('orientationchange', state.orientationHandler);
+        window.removeEventListener('resize', state.orientationHandler);
+        state.orientationHandler = null;
+      }
+      const box = document.getElementById('scan-guide-box');
+      if (box) {
+        box.style.opacity = '0';
+        box.style.width = '0';
+        box.style.height = '0';
+      }
+    }
+
+    // ================================================================
     // スキャン処理
     // ================================================================
     async function startScan() {
@@ -824,33 +871,49 @@
       }
 
       try {
-        // qrbox をビューポート幅基準の関数で指定することで
-        // CSSオーバーレイと実際のスキャン領域を完全一致させる
+        // qrbox はライブラリから渡される viewfinder 幅（= video の表示幅）基準。
+        // 視覚ガイドは syncScanGuideToVideo で video の getBoundingClientRect に合わせる。
         const qrboxFn = (vfW /*, vfH */) => {
           const w = Math.min(Math.floor(vfW * 0.85), 340);
-          const h = 110; // 縦持ち横バーコード最適値
-          // ガイドボックスのサイズをJS側から更新（CSS vw と同期）
-          const guideEl = document.getElementById('scan-guide-box');
-          if (guideEl) { guideEl.style.width = w + 'px'; guideEl.style.height = h + 'px'; }
+          const h = 110;
           return { width: w, height: h };
         };
 
         await state.scanner.start(
           { facingMode: 'environment' },
-          { fps: 15, qrbox: qrboxFn, aspectRatio: 1.777 },
+          { fps: 15, qrbox: qrboxFn },
           _onScanRaw,
           () => {} // 読取失敗は毎フレーム呼ばれるためサイレント
         );
         state.isRunning = true;
 
+        // カメラ映像の実表示位置にガイドを合わせる（iOSのレターボックス対策）
+        const scheduleSync = () => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => { syncScanGuideToVideo(); });
+          });
+        };
+        scheduleSync();
+
+        const vid = document.querySelector('#qr-reader video');
+        if (vid && typeof ResizeObserver !== 'undefined') {
+          state.scanGuideRO = new ResizeObserver(() => syncScanGuideToVideo());
+          state.scanGuideRO.observe(vid);
+        }
+        state.orientationHandler = () => syncScanGuideToVideo();
+        window.addEventListener('orientationchange', state.orientationHandler);
+        window.addEventListener('resize', state.orientationHandler);
+
       } catch (err) {
         console.error('Camera error:', err);
+        teardownScanGuideSync();
         showScreen('screen-picking');
         showToast('カメラを起動できませんでした', 'error');
       }
     }
 
     async function stopScan() {
+      teardownScanGuideSync();
       if (state.scanner && state.isRunning) {
         try { await state.scanner.stop(); } catch (_) {}
         state.isRunning = false;
