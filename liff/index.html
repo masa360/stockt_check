@@ -240,9 +240,23 @@
              class="absolute inset-0 flex items-center justify-center
                     text-slate-500 text-sm">画像未登録</div>
       </div>
-      <!-- 商品名 / JAN -->
+      <!-- 商品名 / JAN / 詳細 -->
       <div class="font-bold text-lg leading-tight mb-1" id="success-product-name">---</div>
-      <div class="text-slate-400 text-xs font-mono mb-6" id="success-jan">---</div>
+      <div class="text-slate-400 text-xs font-mono mb-2" id="success-jan">---</div>
+      <div class="flex flex-wrap gap-2 mb-6">
+        <span id="success-shelf"
+              class="hidden px-2.5 py-1 bg-cyan-500/20 text-cyan-400 text-xs font-bold rounded-full">
+          📍 ---
+        </span>
+        <span id="success-maker"
+              class="hidden px-2.5 py-1 bg-slate-700 text-slate-300 text-xs rounded-full">
+          ---
+        </span>
+        <span id="success-category"
+              class="hidden px-2.5 py-1 bg-slate-700 text-slate-300 text-xs rounded-full">
+          ---
+        </span>
+      </div>
       <!-- ボタン -->
       <button onclick="onSuccessContinue()"
               class="w-full bg-cyan-500 text-white font-black text-base rounded-2xl py-4
@@ -383,7 +397,7 @@
     // ================================================================
     const CONFIG = {
       LIFF_ID:             'YOUR_LIFF_ID',          // LINE Developersで取得したLIFF ID
-      GAS_URL:             'YOUR_GAS_WEBAPP_URL',   // GASデプロイ後のWebアプリURL
+      GAS_URL:             'https://script.google.com/macros/s/AKfycbzddpACXlaD_9KGb6M1i5K-IFi193m5-hqAeSSqymOIJm3pejsGvlkUt6h__qav1FeFmw/exec', // GASデプロイ後のWebアプリURL
       DUPLICATE_WINDOW_MS: 10_000,                  // 同一JAN連続判定ウィンドウ（10秒）
       MAX_RETRY:           3,                        // 再試行上限回数
     };
@@ -850,9 +864,33 @@
 
       document.getElementById('success-product-name').textContent =
         item?.['商品名'] || '商品名不明';
-      document.getElementById('success-jan').textContent = jan;
+      document.getElementById('success-jan').textContent = 'JAN: ' + jan;
       document.getElementById('success-progress').textContent =
         `${completed} / ${required} 個 完了`;
+
+      // 棚番・メーカー・カテゴリ（データがある場合のみ表示）
+      const shelfEl    = document.getElementById('success-shelf');
+      const makerEl    = document.getElementById('success-maker');
+      const categoryEl = document.getElementById('success-category');
+
+      const shelf    = item?.['棚番']     || '';
+      const maker    = item?.['メーカー'] || '';
+      const category = item?.['カテゴリ'] || '';
+
+      if (shelf && shelf !== '未設定') {
+        shelfEl.textContent = '📍 ' + shelf;
+        shelfEl.classList.remove('hidden');
+      } else { shelfEl.classList.add('hidden'); }
+
+      if (maker) {
+        makerEl.textContent = maker;
+        makerEl.classList.remove('hidden');
+      } else { makerEl.classList.add('hidden'); }
+
+      if (category) {
+        categoryEl.textContent = category;
+        categoryEl.classList.remove('hidden');
+      } else { categoryEl.classList.add('hidden'); }
 
       showModal('modal-success');
     }
