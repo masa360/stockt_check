@@ -291,13 +291,20 @@
       </button>
     </div>
 
-    <!-- スキャン枠（中央に配置） -->
+    <!--
+      スキャン枠: JS側の qrbox と同じ計算式で描画することでズレをなくす。
+      幅 = 画面幅の85%（max 340px）/ 高さ = 110px 固定（横バーコード縦持ち最適）
+      id="scan-guide-box" のサイズはスキャナー起動時に JS で設定する。
+    -->
     <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-      <div class="relative" style="width:280px;height:170px;">
-        <!-- 暗幕 -->
+      <div id="scan-guide-box" class="relative"
+           style="width:85vw; max-width:340px; height:110px;">
+        <!-- 暗幕（枠の外側を暗くする） -->
         <div class="absolute"
-             style="inset:-9999px;box-shadow:0 0 0 9999px rgba(0,0,0,0.5);border-radius:12px;"></div>
-        <!-- 枠 -->
+             style="inset:-9999px;
+                    box-shadow:0 0 0 9999px rgba(0,0,0,0.55);
+                    border-radius:10px;"></div>
+        <!-- 枠線 -->
         <div class="absolute inset-0 rounded-xl border-2 border-cyan-400">
           <!-- 四隅の強調 -->
           <span class="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-cyan-400 rounded-tl-lg"></span>
@@ -315,6 +322,7 @@
                 bg-gradient-to-t from-black/80 to-transparent
                 px-4 py-10 text-center">
       <p class="text-white/80 text-sm">バーコードを枠内に合わせてください</p>
+      <p class="text-white/50 text-xs mt-1">縦持ちのまま横向きバーコードをスキャン</p>
     </div>
 
   </div><!-- /screen-scanning -->
@@ -816,9 +824,20 @@
       }
 
       try {
+        // qrbox をビューポート幅基準の関数で指定することで
+        // CSSオーバーレイと実際のスキャン領域を完全一致させる
+        const qrboxFn = (vfW /*, vfH */) => {
+          const w = Math.min(Math.floor(vfW * 0.85), 340);
+          const h = 110; // 縦持ち横バーコード最適値
+          // ガイドボックスのサイズをJS側から更新（CSS vw と同期）
+          const guideEl = document.getElementById('scan-guide-box');
+          if (guideEl) { guideEl.style.width = w + 'px'; guideEl.style.height = h + 'px'; }
+          return { width: w, height: h };
+        };
+
         await state.scanner.start(
           { facingMode: 'environment' },
-          { fps: 15, qrbox: { width: 260, height: 160 } },
+          { fps: 15, qrbox: qrboxFn, aspectRatio: 1.777 },
           _onScanRaw,
           () => {} // 読取失敗は毎フレーム呼ばれるためサイレント
         );
