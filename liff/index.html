@@ -100,8 +100,26 @@
       </div>
     </header>
 
-    <!-- コンテンツ -->
-    <main class="flex-1 overflow-y-auto pb-28 px-4 pt-4">
+    <!-- タブバー -->
+    <div class="flex bg-slate-800 border-b border-slate-700 sticky top-[60px] z-10">
+      <button id="tab-picking"
+              onclick="switchMode('picking')"
+              class="flex-1 py-3 text-sm font-black flex items-center justify-center gap-1.5
+                     border-b-2 border-cyan-400 text-cyan-400 transition-all">
+        📋 指示書
+      </button>
+      <button id="tab-search"
+              onclick="switchMode('search')"
+              class="flex-1 py-3 text-sm font-black flex items-center justify-center gap-1.5
+                     border-b-2 border-transparent text-slate-400 transition-all">
+        🔍 フリー検索
+      </button>
+    </div>
+
+    <!-- ============================================================
+         コンテンツ: 指示書モード
+    ============================================================ -->
+    <main id="content-picking" class="flex-1 overflow-y-auto pb-28 px-4 pt-4">
 
       <!-- 全体進捗バー -->
       <div class="bg-slate-800 rounded-2xl p-3.5 mb-4">
@@ -135,16 +153,104 @@
 
     </main>
 
-    <!-- 固定フッター: スキャン + 更新 -->
+    <!-- ============================================================
+         コンテンツ: フリー検索モード
+    ============================================================ -->
+    <main id="content-search" class="hidden flex-1 overflow-y-auto pb-28 px-4 pt-6">
+
+      <!-- 初期状態（スキャン前） -->
+      <div id="search-idle" class="flex flex-col items-center justify-center py-16 gap-3 text-center">
+        <div class="w-20 h-20 bg-slate-700 rounded-3xl flex items-center justify-center text-4xl mb-2">📷</div>
+        <div class="text-base font-bold text-slate-300">スキャンで商品を検索</div>
+        <div class="text-xs text-slate-500 leading-relaxed">
+          商品マスタから棚番・メーカー・価格を<br>すぐに確認できます
+        </div>
+      </div>
+
+      <!-- 検索結果カード -->
+      <div id="search-result" class="hidden flex flex-col gap-3">
+
+        <!-- 見つかった場合 -->
+        <div id="search-found" class="hidden">
+          <!-- 商品画像 -->
+          <div class="relative w-full bg-slate-800 rounded-2xl overflow-hidden mb-3 border border-slate-700"
+               style="height:180px;">
+            <img id="sr-image" src="" alt=""
+                 class="absolute inset-0 w-full h-full object-contain hidden" />
+            <div id="sr-no-image"
+                 class="absolute inset-0 flex items-center justify-center text-slate-600 text-sm">
+              画像未登録
+            </div>
+          </div>
+
+          <!-- 商品名 -->
+          <div class="bg-slate-800 rounded-2xl p-4 border border-slate-700 mb-3">
+            <div class="text-xs text-slate-500 mb-1">商品名</div>
+            <div class="font-black text-lg leading-tight" id="sr-name">---</div>
+            <div class="text-slate-400 text-xs font-mono mt-1" id="sr-jan">---</div>
+          </div>
+
+          <!-- 詳細グリッド -->
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div class="bg-slate-800 rounded-2xl p-4 border border-slate-700">
+              <div class="text-xs text-slate-500 mb-1">📍 棚番</div>
+              <div class="font-bold text-base text-cyan-400" id="sr-shelf">---</div>
+            </div>
+            <div class="bg-slate-800 rounded-2xl p-4 border border-slate-700">
+              <div class="text-xs text-slate-500 mb-1">📦 在庫数</div>
+              <div class="font-bold text-base" id="sr-stock">---</div>
+            </div>
+            <div class="bg-slate-800 rounded-2xl p-4 border border-slate-700">
+              <div class="text-xs text-slate-500 mb-1">🏷 定価(税込)</div>
+              <div class="font-bold text-base" id="sr-price">---</div>
+            </div>
+            <div class="bg-slate-800 rounded-2xl p-4 border border-slate-700">
+              <div class="text-xs text-slate-500 mb-1">⚖ 単重</div>
+              <div class="font-bold text-base" id="sr-weight">---</div>
+            </div>
+          </div>
+
+          <!-- メーカー / カテゴリ -->
+          <div class="bg-slate-800 rounded-2xl p-4 border border-slate-700 mb-3">
+            <div class="flex justify-between text-sm">
+              <div>
+                <div class="text-xs text-slate-500 mb-0.5">メーカー</div>
+                <div class="font-bold" id="sr-maker">---</div>
+              </div>
+              <div class="text-right">
+                <div class="text-xs text-slate-500 mb-0.5">カテゴリ</div>
+                <div class="font-bold" id="sr-category">---</div>
+              </div>
+            </div>
+          </div>
+        </div><!-- /search-found -->
+
+        <!-- 見つからなかった場合 -->
+        <div id="search-not-found" class="hidden flex flex-col items-center py-12 gap-3 text-center">
+          <div class="text-5xl">❓</div>
+          <div class="font-bold text-lg text-amber-400">マスタ未登録</div>
+          <div class="text-slate-400 text-sm" id="sr-not-found-jan">---</div>
+          <div class="text-xs text-slate-500">商品マスタに登録されていない商品です</div>
+        </div>
+
+      </div><!-- /search-result -->
+
+    </main>
+
+    <!-- 固定フッター（両モード共通） -->
     <div class="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-sm
                 border-t border-slate-700 p-4 flex gap-3 z-10">
-      <!-- 更新ボタン -->
-      <button onclick="loadPickingList()"
+      <!-- 指示書モード: 更新ボタン / フリー検索: クリアボタン -->
+      <button id="footer-sub-btn"
+              onclick="onFooterSubBtn()"
               class="flex-none w-14 h-14 bg-slate-700 rounded-2xl flex items-center justify-center
                      text-slate-300 active:bg-slate-600 active:scale-95 transition-all">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg id="footer-sub-icon-reload" xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        <svg id="footer-sub-icon-clear" xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
       </button>
       <!-- スキャンボタン -->
@@ -407,16 +513,53 @@
     // ================================================================
     const state = {
       user:           { userId: null, displayName: null },
+      mode:           'picking',    // 'picking' | 'search'
       pickingList:    [],           // GASから取得した指示書データ
       lastScan:       { jan: null, timestamp: 0 },
-      retryCount:     0,            // 現在の再試行回数
-      retryParams:    null,         // 再試行用に保持するAPIパラメータ
-      pendingJan:     null,         // 承認待ちJAN（同一JAN連続時）
-      pendingOrderId: null,         // 承認待ち注文ID
-      scanner:        null,         // Html5Qrcode インスタンス
-      isRunning:      false,        // スキャン中フラグ
-      isProcessing:   false,        // 二重呼び出し防止フラグ
+      retryCount:     0,
+      retryParams:    null,
+      pendingJan:     null,
+      pendingOrderId: null,
+      scanner:        null,
+      isRunning:      false,
+      isProcessing:   false,
     };
+
+    // ================================================================
+    // モード切替（指示書 ↔ フリー検索）
+    // ================================================================
+    function switchMode(mode) {
+      state.mode = mode;
+
+      const isPicking = mode === 'picking';
+
+      // タブのスタイル切替
+      document.getElementById('tab-picking').className =
+        'flex-1 py-3 text-sm font-black flex items-center justify-center gap-1.5 border-b-2 transition-all ' +
+        (isPicking ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-slate-400');
+      document.getElementById('tab-search').className =
+        'flex-1 py-3 text-sm font-black flex items-center justify-center gap-1.5 border-b-2 transition-all ' +
+        (!isPicking ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-slate-400');
+
+      // コンテンツ切替
+      document.getElementById('content-picking').classList.toggle('hidden', !isPicking);
+      document.getElementById('content-search').classList.toggle('hidden',  isPicking);
+
+      // フッターサブボタン切替（指示書=更新アイコン / フリー検索=クリアアイコン）
+      document.getElementById('footer-sub-icon-reload').classList.toggle('hidden', !isPicking);
+      document.getElementById('footer-sub-icon-clear').classList.toggle('hidden',  isPicking);
+    }
+
+    // フッターサブボタン（モードにより動作切替）
+    function onFooterSubBtn() {
+      if (state.mode === 'picking') {
+        loadPickingList();
+      } else {
+        // フリー検索をクリア
+        document.getElementById('search-result').classList.add('hidden');
+        document.getElementById('search-idle').classList.remove('hidden');
+      }
+    }
 
     // ================================================================
     // 画面・モーダル制御
@@ -735,8 +878,12 @@
         return;
       }
 
-      // 通常フロー
-      await _processPick(jan, _findOrderIdByJan(jan), false);
+      // モードで分岐
+      if (state.mode === 'search') {
+        await _processSearch(jan);
+      } else {
+        await _processPick(jan, _findOrderIdByJan(jan), false);
+      }
     }
 
     function _isDuplicateScan(jan) {
@@ -757,6 +904,58 @@
         i => String(i['JANコード']) === String(jan) && i['ステータス'] !== '済'
       );
       return item?.['注文ID'] || '';
+    }
+
+    // ================================================================
+    // フリー検索処理
+    // ================================================================
+    async function _processSearch(jan) {
+      try {
+        const res = await callApi({ action: 'getProduct', jan });
+
+        document.getElementById('search-idle').classList.add('hidden');
+        document.getElementById('search-result').classList.remove('hidden');
+
+        if (res.success && res.data) {
+          const p = res.data;
+          document.getElementById('search-found').classList.remove('hidden');
+          document.getElementById('search-not-found').classList.add('hidden');
+
+          // 画像
+          const imgEl   = document.getElementById('sr-image');
+          const noImgEl = document.getElementById('sr-no-image');
+          if (p['画像URL']) {
+            imgEl.src = p['画像URL'];
+            imgEl.classList.remove('hidden');
+            noImgEl.classList.add('hidden');
+          } else {
+            imgEl.classList.add('hidden');
+            noImgEl.classList.remove('hidden');
+          }
+
+          // テキスト各項目
+          document.getElementById('sr-name').textContent     = p['商品名']      || '---';
+          document.getElementById('sr-jan').textContent      = 'JAN: ' + jan;
+          document.getElementById('sr-shelf').textContent    = p['棚番']        || '未設定';
+          document.getElementById('sr-stock').textContent    = (p['在庫数'] !== '' && p['在庫数'] !== undefined) ? p['在庫数'] + ' 個' : '---';
+          document.getElementById('sr-price').textContent    = p['定価(税込)']  || '---';
+          document.getElementById('sr-weight').textContent   = p['単重(g)'] ? p['単重(g)'] + ' g' : '---';
+          document.getElementById('sr-maker').textContent    = p['メーカー']    || '---';
+          document.getElementById('sr-category').textContent = p['カテゴリ']    || '---';
+
+          _sendLog('search_found', jan, '', 'success', '');
+
+        } else {
+          document.getElementById('search-found').classList.add('hidden');
+          document.getElementById('search-not-found').classList.remove('hidden');
+          document.getElementById('sr-not-found-jan').textContent = 'JAN: ' + jan;
+          _sendLog('search_not_found', jan, '', 'fail', 'マスタ未登録');
+        }
+
+      } catch (err) {
+        showToast('検索に失敗しました。再試行してください', 'error');
+        _sendLog('search_error', jan, '', 'fail', err.message);
+      }
     }
 
     // ================================================================
